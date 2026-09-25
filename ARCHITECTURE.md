@@ -106,16 +106,19 @@ Chỉ trace sự kiện/decision code quan sát được (event_type, actor, tar
 - **Map vào claim/output:** `claim_assessments[].evidence_refs` chỉ chứa ref thực sự hỗ trợ verdict của claim đó; `evidence_refs` cấp cao nhất là hợp của mọi ref dùng để ra `assessment`/`root_cause_analysis`/`financial_resolution`. Verdict `unsupported`/`insufficient_evidence` có thể có `evidence_refs` rỗng; các verdict khác bắt buộc ≥1 ref (mục 6).
 - **Phạm vi trích dẫn theo issue (`ISSUE_EVIDENCE`):** thành phần `evidence` chấm bằng F1 giữa độ phủ nhóm evidence bắt buộc và độ chính xác, kèm phạt domain không liên quan — trích quá hẹp mất recall, quá rộng mất precision.
 
-  Số nhóm bắt buộc không được công bố, nhưng ước lượng được từ hai lần nộp. Gọi `C` là số ref trích trung bình mỗi case và `N` là số nhóm bắt buộc; nếu precision = 1 thì `F1 = 2C/(N+C)`:
+  Số nhóm bắt buộc không được công bố. Gọi `C` là số ref trích trung bình mỗi case, `N` là số nhóm bắt buộc:
 
-  | Lần nộp | `C` | Evidence | `N` giải ngược |
-  | --- | ---: | ---: | ---: |
-  | v1 | 3.90 | 81.51 | 5.67 |
-  | v2 | 4.80 | 88.74 | 6.02 |
+  | Lần nộp | `C` | Evidence |
+  | --- | ---: | ---: |
+  | v1 | 3.90 | 81.51 |
+  | v2 | 4.80 | **88.74** |
+  | v4 | 5.90 | ~83.6 |
 
-  Hai ước lượng độc lập gần nhau (**N ≈ 6**), và chính sự khớp đó củng cố giả định precision = 1 — nghĩa là chưa từng trích thừa, chỉ đang trích thiếu. Vì vậy mỗi issue hiện trích 5 evidence chống lưng + policy.
+  **F1 đạt cực đại quanh C ≈ 5, không tăng đơn điệu.** Đây là bài học phải trả giá bằng một lần nộp: sau v1 và v2, giải `F1 = 2C/(N+C)` cho ra `N` = 5.67 và 6.02, hai ước lượng gần nhau nên được diễn giải thành "precision đang bằng 1, cứ thêm ref là tăng". Kết luận đó sai — **hai điểm dữ liệu luôn khớp được với một đường tăng đơn điệu**, chỉ điểm thứ ba mới lộ ra hàm có đỉnh. Nâng C lên 5.90 làm evidence tụt xuống ~83.6, vì phần lớn ref thêm vào không thuộc nhóm bắt buộc và bị tính vào phần "phạt domain không liên quan".
 
-  Nguyên tắc chọn: luôn trích `get_order` (dữ liệu neo của mọi phán đoán); `get_order_items` cho mọi issue vì giá trị đơn là mốc đối chiếu mọi số tiền; `get_sellers` khi seller chịu trách nhiệm; `get_refund_timeline` cho nhóm liên quan hoàn tiền; `get_shipment_summary` cho nhóm liên quan giao nhận hoặc để chứng minh đơn chưa từng giao. Không trích `get_product_context` — danh mục sản phẩm không tham gia bất kỳ phán đoán nào, và đã đủ 6 nhóm mà không cần tới nó.
+  Một đối thủ đạt 91.9 tương ứng `C ≈ 5.12` với precision giữ nguyên, nên trần thực tế nằm quanh đó chứ không phải 100. Cấu hình hiện tại đặt `C = 5.10`: giữ bộ v2 và chỉ thêm `get_sellers` cho ba phán quyết thực sự xoay quanh seller — `canceled_order_paid`, `late_delivery_logistics` (muốn quy lỗi cho bên vận chuyển thay vì seller thì phải chứng minh seller đã bàn giao đúng hạn) và `unsupported_claim` (seller là bên bị khiếu nại).
+
+  Các issue thuần thanh toán không được thêm seller: hồ sơ seller không chống lưng cho kết luận nào ở đó. Không trích `get_product_context` — danh mục sản phẩm không tham gia bất kỳ phán đoán nào.
 - **Emit `tool_result_consumed`:** ngay tại thời điểm specialist dùng một evidence để rút ra kết luận (không phải ngay khi gọi tool) — `actor` là specialist đó, `tool_name` đúng tên tool, `evidence_refs` là ref vừa dùng. Đây là tín hiệu chính cho "evidence-to-trace linkage" trong workflow score.
 - **Không tái sử dụng chéo case:** evidence registry tạo mới mỗi lần `solve_case` chạy (không global/singleton), nên evidence_ref của case A không bao giờ xuất hiện trong output case B — vi phạm điều này là hard gate `cross_scope_evidence_ref` (0 điểm case).
 
@@ -124,7 +127,11 @@ Chỉ trace sự kiện/decision code quan sát được (event_type, actor, tar
 | Failure | Retry? | Fallback | Trace event/code |
 | --- | --- | --- | --- |
 | MCP timeout/transport lỗi | Có, tối đa 2 lần, backoff 2s/4s (idempotent vì tool chỉ đọc) | Hết retry: domain đó coi là thiếu evidence, không phỏng đoán; Policy hạ xuống `primary_issue=insufficient_evidence`, `case_status=needs_investigation` | `policy_decided` với `decision_code=missing_<domain>_evidence` |
-| Not found (tool trả rỗng/không có bản ghi) | Không (deterministic, retry không đổi kết quả) | Coi entity là không tồn tại; **không** dùng `data_conflicts` (schema `sources` yêu cầu ≥2 phần tử, không áp dụng cho case chỉ có 1 nguồn "vắng mặt") — ghi nhận qua `decision_code`, ảnh hưởng `case_status` | `policy_decided` với `decision_code=entity_not_found`, `target=<domain>` |
+| Not found — tool **tùy chọn** (`get_refund_timeline`, `get_product_context`) | Không | Vắng mặt là một dữ kiện về đơn hàng (đơn có thể không hề có lịch sử hoàn tiền). Coi entity là không tồn tại; **không** dùng `data_conflicts` (schema `sources` yêu cầu ≥2 phần tử, không áp dụng cho trường hợp chỉ có 1 nguồn "vắng mặt") | `policy_decided` với `decision_code=entity_not_found`, `target=<domain>` |
+| Tool **bắt buộc** báo lỗi (mọi tool còn lại) | Có, tối đa 2 lần, backoff 2s/4s | Những tool này mô tả thứ đơn hàng chắc chắn phải có, nên lỗi ở đây là tạm thời chứ không phải dữ liệu trống | Nếu hết retry vẫn hỏng: thiếu evidence domain đó |
+| **Không tool nào** lấy được evidence cho một case | — | Dừng run bằng exception. Mọi case đều trỏ tới đơn hàng có thật, nên case trắng evidence nghĩa là gateway đang từ chối call | Không ghi output; chạy lại `day09 run` |
+
+> Bài học từ một lần chạy hỏng: bản đầu phân biệt lỗi theo **loại exception** — `RuntimeError` bị coi là "không có dữ liệu" và không retry, vốn để xử lý `get_refund_timeline`. Khi gateway giới hạn tần suất, lỗi tạm thời rơi đúng vào nhánh đó và 13 case đầu bị hạ xuống `insufficient_evidence` với 0 evidence, trông y như một phán quyết có cân nhắc. Cách phân biệt đúng là theo **bản chất của tool** (bắt buộc hay tùy chọn), không theo loại exception mà thư viện ném ra.
 | Source conflict (≥2 nguồn evidence cho cùng field nhưng khác giá trị) | Không | Ghi vào `data_conflicts` (đủ điều kiện `sources` ≥2), chọn `selected_source` theo rule cố định (vd: `get_order` là nguồn thẩm quyền cho status đơn hàng, `get_shipment_summary` là nguồn thẩm quyền cho ngày giao) | `policy_decided` với `decision_code=conflict_resolved` |
 | Invalid specialist result (thiếu evidence_ref bắt buộc, dữ liệu không nhất quán nội bộ) | Retry nội bộ 1 lần (không gọi lại MCP, chỉ build lại finding) | Nếu vẫn invalid: loại bỏ finding đó khỏi output, `case_status=needs_investigation`, `primary_issue=insufficient_evidence` | `verification_completed` với `decision_code=specialist_output_invalid` |
 | Mất kết nối/DNS giữa run (quan sát thực tế: `httpx2.ConnectError` ở case ~77) | Không nuốt lỗi — để run dừng hẳn | **Cố ý fail-fast.** Session streamable-HTTP đã chết thì mọi call sau đều hỏng; nếu bắt lỗi rồi chạy tiếp, 24 case còn lại sẽ ra `insufficient_evidence` giả và bị nộp nhầm. Harness xóa sạch `outputs/` đầu mỗi run nên chạy lại là sạch, không mất gì | Không emit event bịa; chạy lại `day09 run` |
