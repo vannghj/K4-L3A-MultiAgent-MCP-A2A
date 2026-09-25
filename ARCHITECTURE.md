@@ -113,10 +113,15 @@ Chỉ trace sự kiện/decision code quan sát được (event_type, actor, tar
   | v1 | 3.90 | 81.51 |
   | v2 | 4.80 | **88.74** |
   | v4 | 5.90 | ~83.6 |
+  | v5 | 5.10 | **~89.6** (tổng 93.2605, cấu hình đang dùng) |
 
   **F1 đạt cực đại quanh C ≈ 5, không tăng đơn điệu.** Đây là bài học phải trả giá bằng một lần nộp: sau v1 và v2, giải `F1 = 2C/(N+C)` cho ra `N` = 5.67 và 6.02, hai ước lượng gần nhau nên được diễn giải thành "precision đang bằng 1, cứ thêm ref là tăng". Kết luận đó sai — **hai điểm dữ liệu luôn khớp được với một đường tăng đơn điệu**, chỉ điểm thứ ba mới lộ ra hàm có đỉnh. Nâng C lên 5.90 làm evidence tụt xuống ~83.6, vì phần lớn ref thêm vào không thuộc nhóm bắt buộc và bị tính vào phần "phạt domain không liên quan".
 
   Một đối thủ đạt 91.9 tương ứng `C ≈ 5.12` với precision giữ nguyên, nên trần thực tế nằm quanh đó chứ không phải 100. Cấu hình hiện tại đặt `C = 5.10`: giữ bộ v2 và chỉ thêm `get_sellers` cho ba phán quyết thực sự xoay quanh seller — `canceled_order_paid`, `late_delivery_logistics` (muốn quy lỗi cho bên vận chuyển thay vì seller thì phải chứng minh seller đã bàn giao đúng hạn) và `unsupported_claim` (seller là bên bị khiếu nại).
+
+  **Kết quả đã xác nhận: evidence tăng từ 88.74 lên ~89.6, tổng 93.1380 → 93.2605.** Mức tăng nhỏ hơn dự đoán 91.73 nhưng vẫn dương, nên giải ngược `2K/(C+N)` cho `K ≈ 4.98`: trong 0.30 ref thêm vào chỉ khoảng 0.18 thuộc nhóm bắt buộc. Nói cách khác, **khoảng hai trong ba lần thêm seller là đúng chỗ, một lần thừa** — nhưng dữ liệu tổng hợp không cho biết lần nào thừa. Muốn biết phải thử từng issue một, mỗi lần đổi một chỗ, đổi lấy khoảng 0.1 điểm mỗi bước.
+
+  Bài học chung của cả chuỗi thí nghiệm này: mỗi lần nộp chỉ nên đổi **một** biến, và chỉ đổi khi có lập luận nghiệp vụ độc lập với bảng điểm. Hai lần đi ngược nguyên tắc đó (nhồi đều lên 6 ref; suy ra mô hình từ hai điểm dữ liệu) đều làm điểm tụt.
 
   Các issue thuần thanh toán không được thêm seller: hồ sơ seller không chống lưng cho kết luận nào ở đó. Không trích `get_product_context` — danh mục sản phẩm không tham gia bất kỳ phán đoán nào.
 - **Emit `tool_result_consumed`:** ngay tại thời điểm specialist dùng một evidence để rút ra kết luận (không phải ngay khi gọi tool) — `actor` là specialist đó, `tool_name` đúng tên tool, `evidence_refs` là ref vừa dùng. Đây là tín hiệu chính cho "evidence-to-trace linkage" trong workflow score.
