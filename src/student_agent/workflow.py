@@ -206,20 +206,29 @@ async def shipment_agent(ctx: CaseContext) -> Finding:
 
 
 def _genuine_items(order: dict[str, Any], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop item rows planted from another scenario.
+    """Reduce the item rows to one row per item the order actually contains.
 
-    Every case mixes in rows from a second storyline. The authentic row is the one whose
-    shipping limit sits exactly ANCHOR_SHIPPING_LIMIT_DAYS after the order was approved.
+    get_order_items returns one row per storyline, so the same order_item_id appears twice:
+    once for the real order and once for the rows planted from another scenario. The
+    authentic row is the one whose shipping limit sits exactly ANCHOR_SHIPPING_LIMIT_DAYS
+    after the order was approved. When the planted row happens to be identical to the real
+    one both survive that filter, so the rows are also collapsed by order_item_id -
+    otherwise the order total would count a single item twice.
     """
     approved = _dt(order.get("order_approved_at"))
     if approved is None or not items:
-        return list(items)
-    wanted = (approved + timedelta(days=ANCHOR_SHIPPING_LIMIT_DAYS)).date()
-    genuine = [
-        row for row in items
-        if (d := _dt(row.get("shipping_limit_date"))) and d.date() == wanted
-    ]
-    return genuine or list(items)
+        candidates = list(items)
+    else:
+        wanted = (approved + timedelta(days=ANCHOR_SHIPPING_LIMIT_DAYS)).date()
+        candidates = [
+            row for row in items
+            if (d := _dt(row.get("shipping_limit_date"))) and d.date() == wanted
+        ] or list(items)
+
+    seen: dict[str, dict[str, Any]] = {}
+    for row in candidates:
+        seen.setdefault(str(row.get("order_item_id")), row)
+    return list(seen.values())
 
 
 def classify(ctx: CaseContext, findings: dict[str, Finding]) -> tuple[str, dict[str, Any]]:
@@ -351,7 +360,9 @@ def _entities(ctx: CaseContext, findings: dict[str, Finding]) -> dict[str, list[
         "order_ids": order_ids,
         "item_ids": unique([r.get("order_item_id") for r in genuine]),
         "seller_ids": unique([r.get("seller_id") for r in genuine]),
-        "payment_references": unique([r.get("payment_type") for r in payments]),
+        # A payment is identified within its order by payment_sequential; payment_type is a
+        # category label rather than a reference to any particular payment.
+        "payment_references": unique([r.get("payment_sequential") for r in payments]),
         "shipment_ids": unique([shipment.get("order_id")] if shipment else []),
     }
 
@@ -380,7 +391,14 @@ def _conflicts(findings: dict[str, Finding]) -> list[dict[str, Any]]:
     items = order_facts.get("items") or []
     genuine = order_facts.get("genuine_items") or []
     conflicts: list[dict[str, Any]] = []
-    if len(items) > len(genuine) >= 1:
+    # Only a real disagreement counts: a discarded row that merely repeats the kept one
+    # carries no competing value to choose between.
+    kept = {str(row.get("order_item_id")): row for row in genuine}
+    disputed = any(
+        (other := kept.get(str(row.get("order_item_id")))) is not None and other != row
+        for row in items
+    )
+    if disputed:
         conflicts.append({
             "field": "order_items.shipping_limit_date",
             "sources": ["get_order_items.anchored_row", "get_order_items.off_anchor_row"],

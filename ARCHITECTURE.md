@@ -54,7 +54,7 @@ inputs/<case_id>.json
     └────────┼───────────┘
              ▼ (handoff, evidence bundle theo case_id)
       ┌──────────────┐
-      │ Policy Agent  │  get_policy + get_customer_history
+      │ Policy Agent  │  get_policy
       └──────┬───────┘  emit policy_decided
              ▼ (handoff)
       ┌──────────────┐
@@ -75,7 +75,9 @@ Tool danh sách lấy qua `day09 mcp-tools` (tool discovery, không đoán tên)
 | Order/Item Agent | case context + `claimed_order_id` | **Xác minh** `claimed_order_id` có thật và thuộc phạm vi case (không coi input là ground truth), lấy trạng thái đơn, line item, product context | `get_order`, `get_order_items`, `get_product_context` | `order_facts` (status, items, product context) + `evidence_refs` → Coordinator |
 | Payment Agent | case context + `order_id` | Đối chiếu thanh toán, timeline thanh toán, phát hiện duplicate charge / split payment, trạng thái hoàn tiền | `get_order_payments`, `get_payment_timeline`, `get_refund_timeline` | `payment_facts` + `evidence_refs` → Coordinator |
 | Shipment Agent | case context + `order_id` | Đối chiếu tiến trình giao hàng, ngày cam kết vs thực tế, quy trách nhiệm seller vs logistics | `get_shipment_summary`, `get_sellers` | `shipment_facts` + `evidence_refs` → Coordinator |
-| Policy Agent | Evidence bundle từ 3 specialist (do Coordinator gộp) + `policy_version` từ input | Áp policy rule + lịch sử khách hàng để **kết luận độc lập** `primary_issue` (được phép khác `claims[0].topic`), `root_cause_analysis`, `financial_resolution`, `resolution_actions`; ghi `data_conflicts` nếu nguồn mâu thuẫn thật sự (≥2 nguồn) | `get_policy`, `get_customer_history` | draft output object → Verifier |
+| Policy Agent | Evidence bundle từ 3 specialist (do Coordinator gộp) + `policy_version` từ input | Áp policy rule để **kết luận độc lập** `primary_issue` (được phép khác `claims[0].topic`), `root_cause_analysis`, `financial_resolution`, `resolution_actions`; ghi `data_conflicts` nếu nguồn mâu thuẫn thật sự (≥2 nguồn) | `get_policy` | draft output object → Verifier |
+
+`get_customer_history` là tool duy nhất không được dùng, vì **không gọi được**: nó yêu cầu `customer_unique_id`, nhưng không evidence nào trong 10 tool trả về trường đó — `get_order` chỉ có `customer_id` (định danh theo từng đơn, khác khái niệm trong dataset Olist) và gateway từ chối giá trị này. Đây là ngõ cụt của đồ thị tool, không phải lựa chọn thiết kế.
 | Verifier | Draft output + evidence registry theo case | Kiểm schema, entity scope, evidence ownership, claim linkage, money totals, consistency, confidence — theo mục 6 | *(không gọi MCP)* | Output cuối (hoặc downgrade `insufficient_evidence`/`needs_investigation`) → finalize |
 
 Nguyên tắc least-privilege: mỗi specialist chỉ có tool đúng domain của nó; Coordinator và Verifier không gọi MCP trực tiếp để tránh trùng lặp evidence và giữ trace gọn.
@@ -180,6 +182,16 @@ Các dòng bị loại không bị vứt im lặng mà được ghi vào `data_c
 **Kiểm chứng:** bộ rule này chạy trên cache evidence của cả 100 case cho kết quả trùng khớp 10/10 ở từng loại issue. `primary_issue` được suy từ evidence chứ không sao chép `claims[].topic` — topic chỉ dùng để đối chiếu khi kiểm thử.
 
 **Từ issue suy ra phần còn lại:** `get_policy` trả bảng rule cố định (giống nhau ở mọi case) map issue → `case_status`, `recommended_action`, `refund_brl`, `responsible_parties`. Ngoại lệ: `party_id` trong policy là giá trị cố định không thuộc đơn hàng đang xét, nên khi `party_type=seller` hệ thống thay bằng `seller_id` thật lấy từ item thật của case.
+
+### Các trường không suy được từ evidence
+
+Ba trường trong output không có nguồn định danh tương ứng trong dữ liệu MCP, nên giá trị được chọn theo lập luận ngữ nghĩa chứ không phải theo evidence trực tiếp:
+
+| Trường | Giá trị đang dùng | Vì sao không chắc |
+| --- | --- | --- |
+| `affected_entities.payment_references` | `payment_sequential` (`"1"`, `"2"`) | Evidence thanh toán không có ID riêng. Chọn `payment_sequential` vì nó phân biệt từng khoản trong đơn; `payment_type` (`credit_card`/`voucher`) từng được dùng ở v1–v2 nhưng đó là nhãn phân loại, không phải tham chiếu tới một khoản cụ thể |
+| `affected_entities.shipment_ids` | `order_id` từ `get_shipment_summary` | Không tồn tại ID vận đơn riêng trong bất kỳ evidence nào |
+| `root_cause_analysis.ranked_causes[].cause_code` | `PRIMARY_ISSUE` viết hoa | Schema chỉ ràng buộc dạng `^[A-Z][A-Z0-9_]{2,79}$`, không công bố từ vựng mong đợi |
 
 ### Giới hạn đã biết: case có hai dòng dữ liệu trùng ngày neo
 
