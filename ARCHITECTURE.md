@@ -123,6 +123,8 @@ Chỉ trace sự kiện/decision code quan sát được (event_type, actor, tar
 
   Bài học chung của cả chuỗi thí nghiệm này: mỗi lần nộp chỉ nên đổi **một** biến, và chỉ đổi khi có lập luận nghiệp vụ độc lập với bảng điểm. Hai lần đi ngược nguyên tắc đó (nhồi đều lên 6 ref; suy ra mô hình từ hai điểm dữ liệu) đều làm điểm tụt.
 
+  **Thí nghiệm còn dang dở** (chạy hỏng vì server, chưa có kết quả): bỏ `get_sellers` khỏi `canceled_order_paid`, đưa `C` về 5.00. Lý do: policy quy trách nhiệm cho `platform` ở issue này, nên hồ sơ seller không chống lưng cho kết luận nào. Giải mô hình với `N ≈ 5.67`, `K ≈ 4.82`: nếu ref đó thừa thì evidence lên ~90.35, nếu bắt buộc thì xuống ~88.47. Nếu kết quả là thừa thì `unsupported_claim` (policy quy lỗi `customer`) gần như chắc chắn cũng thừa và bỏ tiếp được thêm một nấc. Trần lý thuyết khi sạch hết phần thừa là `C = 4.82 → F1 = 91.9`, đúng bằng mức đối thủ tốt nhất quan sát được.
+
   Các issue thuần thanh toán không được thêm seller: hồ sơ seller không chống lưng cho kết luận nào ở đó. Không trích `get_product_context` — danh mục sản phẩm không tham gia bất kỳ phán đoán nào.
 - **Emit `tool_result_consumed`:** ngay tại thời điểm specialist dùng một evidence để rút ra kết luận (không phải ngay khi gọi tool) — `actor` là specialist đó, `tool_name` đúng tên tool, `evidence_refs` là ref vừa dùng. Đây là tín hiệu chính cho "evidence-to-trace linkage" trong workflow score.
 - **Không tái sử dụng chéo case:** evidence registry tạo mới mỗi lần `solve_case` chạy (không global/singleton), nên evidence_ref của case A không bao giờ xuất hiện trong output case B — vi phạm điều này là hard gate `cross_scope_evidence_ref` (0 điểm case).
