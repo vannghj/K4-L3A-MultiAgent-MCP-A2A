@@ -102,6 +102,7 @@ Chỉ trace sự kiện/decision code quan sát được (event_type, actor, tar
 - **Validate:** `EvidenceGateway.call(...)` (`src/student_agent/mcp_gateway.py`) đã tự validate mọi response theo `mcp-evidence-response-v1.schema.json` trước khi trả về — specialist không cần validate lại cấu trúc envelope, chỉ cần validate nội dung nghiệp vụ (vd: order tồn tại hay không).
 - **Lưu `evidence_ref`:** mỗi specialist giữ map `evidence_ref → evidence envelope` trong evidence registry của case context; chỉ forward chuỗi `evidence_ref` (không copy/sửa) vào `SpecialistFinding` và cuối cùng vào output.
 - **Map vào claim/output:** `claim_assessments[].evidence_refs` chỉ chứa ref thực sự hỗ trợ verdict của claim đó; `evidence_refs` cấp cao nhất là hợp của mọi ref dùng để ra `assessment`/`root_cause_analysis`/`financial_resolution`. Verdict `unsupported`/`insufficient_evidence` có thể có `evidence_refs` rỗng; các verdict khác bắt buộc ≥1 ref (mục 6).
+- **Phạm vi trích dẫn theo issue (`ISSUE_EVIDENCE`):** thành phần `evidence` chấm bằng F1 giữa độ phủ nhóm evidence bắt buộc và độ chính xác, kèm phạt domain không liên quan — nên trích dẫn quá hẹp mất recall, quá rộng mất precision. Bản nộp đầu chỉ trích 3–4 ref/case và đạt `evidence coverage 81.51` trong khi các thành phần khác đều ~93.9, cho thấy đang hụt recall. Nguyên tắc hiện tại: luôn trích `get_order` (dữ liệu neo của mọi phán đoán); trích `get_order_items` khi số tiền hoàn truy về giá hoặc phí vận chuyển của item; trích `get_sellers` khi seller là bên chịu trách nhiệm. Không trích `get_product_context` vì danh mục sản phẩm không tham gia bất kỳ phán đoán nào.
 - **Emit `tool_result_consumed`:** ngay tại thời điểm specialist dùng một evidence để rút ra kết luận (không phải ngay khi gọi tool) — `actor` là specialist đó, `tool_name` đúng tên tool, `evidence_refs` là ref vừa dùng. Đây là tín hiệu chính cho "evidence-to-trace linkage" trong workflow score.
 - **Không tái sử dụng chéo case:** evidence registry tạo mới mỗi lần `solve_case` chạy (không global/singleton), nên evidence_ref của case A không bao giờ xuất hiện trong output case B — vi phạm điều này là hard gate `cross_scope_evidence_ref` (0 điểm case).
 
@@ -179,3 +180,11 @@ Các dòng bị loại không bị vứt im lặng mà được ghi vào `data_c
 **Kiểm chứng:** bộ rule này chạy trên cache evidence của cả 100 case cho kết quả trùng khớp 10/10 ở từng loại issue. `primary_issue` được suy từ evidence chứ không sao chép `claims[].topic` — topic chỉ dùng để đối chiếu khi kiểm thử.
 
 **Từ issue suy ra phần còn lại:** `get_policy` trả bảng rule cố định (giống nhau ở mọi case) map issue → `case_status`, `recommended_action`, `refund_brl`, `responsible_parties`. Ngoại lệ: `party_id` trong policy là giá trị cố định không thuộc đơn hàng đang xét, nên khi `party_type=seller` hệ thống thay bằng `seller_id` thật lấy từ item thật của case.
+
+### Giới hạn đã biết: case có hai dòng dữ liệu trùng ngày neo
+
+Bốn case — `L3A_CASE_012`, `L3A_CASE_039`, `L3A_CASE_062`, `L3A_CASE_089` — có dòng nhiễu **rơi đúng vào ngày neo** của dòng thật, nên phép lọc ở trên không tách được chúng (biểu hiện: 2 item "thật" thay vì 1, và số capture nhiều bất thường so với 9 case còn lại cùng nhóm).
+
+Ví dụ `L3A_CASE_039`: cả ba capture 52.00, 44.50, 44.50 cùng ngày 2018-02-28. Cặp 44.50+44.50 = 89.00 khớp giá trị một item (chữ ký `valid_split_payment`), trong khi 52.00 kèm refund thất bại là chữ ký `refund_failed`. Hai kịch bản đều có mặt và đều hợp lệ về mặt tín hiệu.
+
+Hệ thống giữ nguyên thứ tự thang quyết định cho các case này (không thêm luật đặc biệt), vì không có căn cứ khách quan để chọn dòng nào là thật; thêm heuristic riêng sẽ là phỏng đoán và có thể làm hỏng cả những case đang đúng. Đây là ứng viên hàng đầu cho phần điểm `semantic` bị mất, và chỉ giải được khi có phản hồi chấm điểm ở mức từng case.

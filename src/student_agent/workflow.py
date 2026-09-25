@@ -17,15 +17,33 @@ MAX_ATTEMPTS = 3
 # Evidence domains that genuinely support each verdict. Citing unrelated domains costs
 # precision on the evidence component, so each issue pulls only the tools it argues from.
 ISSUE_EVIDENCE: dict[str, tuple[str, ...]] = {
-    "canceled_order_paid": ("get_order", "get_order_payments", "get_payment_timeline"),
-    "unavailable_order_paid": ("get_order", "get_order_payments", "get_payment_timeline"),
-    "late_delivery_seller": ("get_order", "get_shipment_summary", "get_sellers"),
-    "late_delivery_logistics": ("get_order", "get_shipment_summary"),
-    "valid_split_payment": ("get_order_items", "get_order_payments", "get_payment_timeline"),
+    # get_order anchors every verdict, so it is cited throughout. get_order_items is cited
+    # wherever the refund figure traces back to a price or freight line, and get_sellers
+    # only where the seller is the accountable party.
+    "canceled_order_paid": (
+        "get_order", "get_order_items", "get_order_payments", "get_payment_timeline",
+    ),
+    "unavailable_order_paid": (
+        "get_order", "get_order_items", "get_order_payments", "get_payment_timeline",
+        "get_sellers",
+    ),
+    "late_delivery_seller": (
+        "get_order", "get_order_items", "get_shipment_summary", "get_sellers",
+    ),
+    "late_delivery_logistics": ("get_order", "get_order_items", "get_shipment_summary"),
+    "valid_split_payment": (
+        "get_order", "get_order_items", "get_order_payments", "get_payment_timeline",
+    ),
     "payment_mismatch": ("get_order", "get_order_payments", "get_payment_timeline"),
-    "duplicate_charge": ("get_order_items", "get_order_payments", "get_payment_timeline"),
-    "refund_pending": ("get_order_payments", "get_payment_timeline", "get_refund_timeline"),
-    "refund_failed": ("get_order_payments", "get_payment_timeline", "get_refund_timeline"),
+    "duplicate_charge": (
+        "get_order", "get_order_items", "get_order_payments", "get_payment_timeline",
+    ),
+    "refund_pending": (
+        "get_order", "get_order_payments", "get_payment_timeline", "get_refund_timeline",
+    ),
+    "refund_failed": (
+        "get_order", "get_order_payments", "get_payment_timeline", "get_refund_timeline",
+    ),
     "unsupported_claim": ("get_order", "get_order_payments", "get_shipment_summary"),
     "insufficient_evidence": ("get_order",),
 }
